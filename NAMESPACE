@@ -1,0 +1,14 @@
+importFrom(randomForestSRC, rfsrc)
+importFrom(LogicReg, logreg.anneal.control, logreg)
+import(CoxBoost)
+import(survival)
+import(parallel)
+export(fit.uniCox, fit.CoxBoost, sprinter, resample.sprinter,
+       fit.rf, simul.int, fit.rf.select, fit.logicReg, fit.logicReg.select)
+S3method(summary,sprinter)
+S3method(print, sprinter)
+S3method(predict, sprinter)
+S3method(summary,resample.sprinter)
+S3method(print, resample.sprinter)
+S3method(plot, resample.sprinter)
+
