@@ -1,6 +1,11 @@
 
 fct_interselect <- function(res, indmain, m=100, mat, cutoff = 0){
       vim <-  sapply(res, function(arg) return(arg)) 
+      
+      if (class(cutoff) == "function") {
+        cutoff <- do.call(cutoff, list(vim))
+      }
+      
       Y <- apply(vim, 2, function(arg){
                         arg > cutoff})
       Z <- matrix(0, ncol = nrow(Y), nrow = nrow(Y))
@@ -16,7 +21,7 @@ fct_interselect <- function(res, indmain, m=100, mat, cutoff = 0){
                           Z[which(Z >= 1, arr.ind = TRUE)])[order(Z[which(Z >= 1, arr.ind = TRUE)],decreasing=TRUE),]
       paare <- which(Z >= max(min(sort(Z, decreasing = T)[1:min(length(Z),lpaare)]),1), arr.ind = TRUE)
       xcombmat <- apply(paare,1, function(arg){mat[,arg[1]]*mat[,arg[2]]})
-      colnames(xcombmat) <-  apply(paare,1, function(arg){paste(colnames(mat)[arg[2]],':',colnames(mat)[arg[1]], sep = '')})
+      if(length(paare)!=0) {colnames(xcombmat) <-  apply(paare,1, function(arg){paste(colnames(mat)[arg[2]],':',colnames(mat)[arg[1]], sep = '')})}
       out <- list()
       out$xcombmat0 <- xcombmat
       out$hfgktpaare <- hfgktpaare
@@ -101,7 +106,7 @@ resample.sprinter <- function(x,
 
  sprinter <- function(x, 
                       time, 
-                      status,
+                      status= rep(0, nrow(x)),
                       mandatory= NULL,
                       repetitions = 25, 
                       n.inter.candidates =1000, 
@@ -112,6 +117,7 @@ resample.sprinter <- function(x,
                       args.screen.inter = list(),
                       args.fit.final = args.screen.main, 
                       orthogonalize = TRUE,
+                      cutoff = 0,
                       parallel = FALSE, mc.cores = detectCores(), ...){   
     # Einstellungen:
       xmat <- as.matrix(x)
@@ -133,8 +139,13 @@ resample.sprinter <- function(x,
       inds1 <- c(1:ncol(xmat))[-res1$indmain]
       haupt1 <- res1$indmain
       
-      if (length(haupt1 > 0)&orthogonalize == TRUE) {
-        xmats <- apply(xmat[,inds1], 2, function(arg){predict(glm(arg ~ xmat[,haupt1]))})
+      if (length(haupt1 > 0) & orthogonalize == TRUE) {
+        xmats <- apply(
+          xmat[,inds1], 
+          2, 
+          function(arg){
+            predict(glm(arg ~ xmat[,haupt1]))
+            })
         colnames(xmats) <- colnames(xmat)[inds1]
         zmat <- xmat[,inds1] - xmats
         zdf  <- as.data.frame(
@@ -144,7 +155,7 @@ resample.sprinter <- function(x,
                   )
         colnames(zdf)[1:length(haupt1)] <- colnames(xmat)[haupt1]
       } else { 
-        zdf <- as.data.frame(cbind(xmat, status, time))
+        zdf <- as.data.frame(cbind(xdf, status, time))
         colnames(zdf)[(ncol(zdf)-1):ncol(zdf)] <- c('status', 'time')
       }
 
@@ -179,7 +190,7 @@ resample.sprinter <- function(x,
 
    
     # Erstellen einer Matrix mit Interaktionen:
-      interselectout <- fct_interselect(res, indmain=haupt1, mat = xmat, m=n.inter.candidates)
+      interselectout <- fct_interselect(res, indmain=haupt1, mat = xmat, m=n.inter.candidates, cutoff = cutoff)
       xcombmat0 <- interselectout$xcombmat
 
       if (length(haupt1) >  1){
@@ -197,7 +208,9 @@ resample.sprinter <- function(x,
       } else {
         xcombmat <- cbind(xmat[,haupt1], xcombmat0)
       }
-      xcombmat <- xcombmat[,!duplicated(colnames(xcombmat))]
+      if (ncol(xcombmat)>1) {
+        xcombmat <- xcombmat[,!duplicated(colnames(xcombmat))]
+      }
 
     
     # New Unpen.index:
@@ -214,6 +227,11 @@ resample.sprinter <- function(x,
       args.fit.final$x <- xcombmat
       if(!is.null(mandatory)){ args.fit.final$unpen.index <- unpen.index2}
     
+    if (sum(xcombmat) == 0){
+      cat('No Main effects and Interactions are preselected')
+      
+    }
+    
       cat('\n Fitting joint model \n')
       res2 <- do.call(fit.final,args.fit.final)
       
@@ -225,10 +243,13 @@ resample.sprinter <- function(x,
       out$mandatory <- mandatory
       out$repetitions <- repetitions
       out$n.inter.candidates <- n.inter.candidates
-      out$inter.candidates <- interselectout$hfgktpaare[1:100,]
+      if(is.matrix(interselectout$hfgktpaare) & sum(interselectout$hfgktpaare)!=0) {
+        out$inter.candidates <- interselectout$hfgktpaare[1:min(100,nrow(interselectout$hfgktpaare)),]
+      } else {
+        out$inter.candidates <- interselectout$hfgktpaare
+      }
       out$main.model <- res1
       out$final.model <- res2
-      
       class(out) <- c("sprinter",class(out))
       return(out)
   }
@@ -275,6 +296,48 @@ resample.sprinter <- function(x,
       return(res)
     }
      
+fit.GAMBoost <- function(time, 
+                         status, 
+                         x, 
+                         unpen.index=NULL, 
+                         seed = 123, 
+                         stepno = NULL,
+                         penalty = 100,
+                         maxstepno=200,
+                         standardize = T, 
+                         criterion = 'deviance',
+                         family = gaussian(),
+                         trace = T,... 
+){
+  penalty <- rep(penalty, ncol(x))
+  if (!is.null(unpen.index)){penalty[unpen.index] <- 0}
+  
+  if (is.null(stepno)){
+    set.seed(seed)
+    gamb <- cv.GAMBoost(y=time,
+                            x.linear = x,
+                            maxstepno = maxstepno, 
+                            penalty.linear = penalty,
+                            criterion = criterion,
+                            family = family, 
+                            ...)
+  } else {
+    set.seed(seed)
+    gamb <- GAMBoost(y=time,
+                 x.linear = x,
+                 penalty.linear=penalty,
+                 criterion = criterion, family = family,stepno = stepno,...)
+  }
+  selected <- getGAMBoostSelected(gamb)
+  indmain <- selected$parametric
+  res <- list()
+  res$model <- gamb
+  res$indmain <- indmain
+  res$xnames <- colnames(x)[indmain]
+  res$beta <- gamb$beta.linear[gamb$stepno + 1, selected$parametric]
+  return(res)
+}
+
 
 fit.uniCox <- function(time, status, x, 
     unpen.index = NULL, 
@@ -291,6 +354,8 @@ fit.uniCox <- function(time, status, x,
                              method = method)
     indmain <- unique(c(which(pvalueadjust < sig), 
                          unpen.index))
+    if (is.null(indmain)) 
+      stop("Error: no main effects are determined. \n Increase the significance level.")
   # Fitting Cox Model:
     datamulti <- as.data.frame(x[,indmain])
     cox <- coxph(Surv(time,status)~., 
@@ -308,20 +373,98 @@ fit.uniCox <- function(time, status, x,
 
 
 
-fit.rf <- function(nr, data, indices, 
-                   seed.interselect,...){
-  cat(nr)
-  rsf  <- rfsrc(
-    Surv(time, status) ~ ., 
-    data = data[indices,],
-    big.data = T, 
-    seed = seed.interselect
-  )
-  return(rsf$importance)
+fit.uniGlm <- function(time, status, x, 
+                       unpen.index = NULL, 
+                       method = 'bonferroni', family = gaussian(), sig = 0.05,...){
+  
+  # Identifying main effects:
+  pvalue <- beta <- rep(NA, ncol(x))
+  for (i in 1:ncol(x)){
+    if (sum(x[,i]) != 0){
+      res <- glm(time~ x[,i], family = family)
+      pvalue[i] <- summary(res)$coefficients[2,4]
+      beta[i] <- summary(res)$coefficients[2,1]
+    } else {
+      pvalue[i] <- 1
+      beta[i] <- NA
+    }  
+  }
+  pvalueadjust <- p.adjust(p=pvalue, 
+                           method = method)
+  indmain <- unique(c(which(pvalueadjust < sig), 
+                      unpen.index))
+  # Fitting Cox Model:
+  datamulti <- as.data.frame(x[,indmain])
+  glm <- glm(time~., 
+               data= datamulti)
+  # Results:
+  res <- list()
+  res$model <- glm
+  res$xnames <- colnames(x)[indmain]
+  res$indmain <- indmain
+  res$beta <- coefficients(glm)
+  
+  return(res)
+  
+}
+
+
+fit.hierarch <- function(nr, data, indices, seed.interselect,
+                        method = 'bonferroni', family = gaussian(), sig = 0.05,...){
+  
+  # Identifying main effects:
+  time <- data$time
+  status <- data$status
+  pvalue <- beta <- rep(NA, ncol(data)-2)
+  
+  if (sum(data$status) != 0){
+    for (i in 1:(ncol(data)-2)){
+      res <- coxph(Surv(time,status)~ data[,i])
+      pvalue[i] <- summary(res)$coefficients[,5]
+      beta[i] <- summary(res)$coefficients[,1]
+    }
+  } else {
+    for (i in 1:(ncol(data)-2)){
+      res <- glm(time~ data[,i], family = family)
+      pvalue[i] <- summary(res)$coefficients[2,4]
+      beta[i] <- summary(res)$coefficients[2,1]  
+    }
+  }
+  
+  pvalueadjust <- p.adjust(p=pvalue, 
+                           method = method)
+  indmain <- unique(which(pvalueadjust < sig))
+  vim <- rep(0, ncol(data))
+  vim[indmain] <- 1
+  return(vim)
 }
 
 
 
+
+fit.rf <- function(nr, data, indices, 
+                   seed.interselect,...){
+  cat(nr)
+  if(sum(data$status) == 0){ 
+    rf  <- rfsrc(
+      time ~ ., 
+      data = data[indices,-(ncol(data)-1)],
+      big.data = T, 
+      seed = seed.interselect
+    )
+    } else {
+    rf  <- rfsrc(
+      Surv(time, status) ~ ., 
+      data = data[indices,],
+      big.data = T, 
+      seed = seed.interselect
+      ) 
+  }
+  return(rf$importance)
+}
+
+
+#!! noch nicht für stetige Outcomes modifiziert:
 fit.rf.select <- function(nr, data, indices, 
                    seed.interselect,n.select, ...){
   pvalue <- rep(NA, ncol(data))
@@ -370,11 +513,19 @@ fit.logicReg <- function(nr,
   # Durchführung logicRegression:
   set.seed(seed.interselect)
   myanneal <- logreg.anneal.control(start = -1, end = -4, iter = 2500, update = 100)
-  logicR <- logreg(resp = obs.time[indices], bin=d[indices,], cens = obs.status[indices], 
+  if (sum(obs.status) == 0){
+    logicR <- logreg(resp = obs.time[indices], bin=d[indices,],
+                     anneal.control = myanneal,select = 2,
+                     type=type,
+                     nleaves=nleaves,
+                     ntrees=ntrees) 
+  } else {
+    logicR <- logreg(resp = obs.time[indices], bin=d[indices,], cens = obs.status[indices], 
                    anneal.control = myanneal,select = 2,
                    type=type,
                    nleaves=nleaves,
                    ntrees=ntrees) 
+  }
   
   # Bewerten der Variablen, die in logicRegression ausgewählt werden mit vimp = 1:
   # Code läuft nur bei select = 2:
@@ -390,6 +541,7 @@ fit.logicReg <- function(nr,
 }
 
 
+#!! noch nicht für stetige Outcomes modifiziert:
 fit.logicReg.select <- function(nr, 
                          data, 
                          indices, 
@@ -536,7 +688,7 @@ function(object, newdata=NULL, ...){
     
     #Create Dataset with interactions:
     if (!is.null(object$inter.candidates)){
-      if(length(coef(object$final.model$model)) != length(object$final.model$indmain)){
+      if (length(coef(object$final.model$model)) != length(object$final.model$indmain)){
           list.final <- object$final.model$model$xnames
         } else {
           list.final <- object$final.model$xnames
@@ -572,10 +724,15 @@ print.sprinter <- function(x,...){
   }
   
   cat('Top 20 Interaction Candidates with Inclusion Frequencies: \n ')
-  
-  inter.candidates <- x$inter.candidates[1:20,3]
-  names(inter.candidates) <- paste(x$xnames[x$inter.candidates[1:20,1]],':',
-                                   x$xnames[x$inter.candidates[1:20,2]], sep='')
+  if (is.matrix(x$inter.candidates)){#& nrow(x$inter.candidates)>0){
+    inter.candidates <- x$inter.candidates[1:min(20, nrow(x$inter.candidates)),3]
+    names(inter.candidates) <- paste(x$xnames[x$inter.candidates[1:min(20, nrow(x$inter.candidates)),1]],':',
+                                     x$xnames[x$inter.candidates[1:min(20, nrow(x$inter.candidates)),2]], sep='')
+  } else {
+    inter.candidates <- x$inter.candidates[3]
+    names(inter.candidates) <- paste(x$xnames[x$inter.candidates[1]],':',
+                                     x$xnames[x$inter.candidates[2]], sep='')
+  }
   print(inter.candidates)
   
   cat('\n Final model: \n \n')

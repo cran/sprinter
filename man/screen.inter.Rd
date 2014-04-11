@@ -3,6 +3,7 @@
 \alias{fit.logicReg.select}
 \alias{fit.rf}
 \alias{fit.rf.select}
+%\alias{fit.hierarch}
 \title{
 Adaptive function for screening interactions}
 \description{
@@ -23,6 +24,8 @@ fit.logicReg.select(nr, data, indices, seed.interselect,
        nleaves,
        ntrees, 
        n.select,\dots)
+%fit.hierarch(nr, data, indices, seed.interselect,
+%                        method = 'bonferroni', family = gaussian(), sig = 0.05,\dots)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -44,16 +47,18 @@ Number of variables selected for performing random forest.
   \item{type}{type of model to be fit. For survival data you can choose between (4) proportional hazards model (Cox regression), and (5) exponential survival model, or (0) your own scoring function. }
   \item{nleaves}{maximum number of leaves to be fit in all trees combined. }
   \item{ntrees}{number of logic trees to be fit.}
-  \item{\dots}{
-  further arguments passed to methods.
-}
+%  \item{method}{method for adjusting p-values. A variable is selected if its adjusted p-value is less than \code{sig}.}
+%  \item{family}{a description of the error distribution to be used in the model. This can be a character string naming a family function, a family function or the result of a call to a family function.}
+%  \item{sig}{selection level. A variable is selected if its adjusted p-value is less than \code{sig}}
+  \item{\dots}{further arguments passed to methods.}
 }
 
 
 \details{
-The functions \code{logicReg} and \code{fit.rf} are adapted for the usage in the function sprinter in order to screen interactions.
+The functions \code{logicReg} and \code{fit.rf} %and \code{fit.hierarch} 
+are adapted for the usage in the function sprinter in order to screen interactions.
 Therein, variable importance measurements are evaluated for each variable, which will be used for pre-selecting relevant interactions in the function \code{\link{sprinter}}.
-In thefunction \code{sprinter} the identified interaction candidates will be combined with each other pairwise and will be provided as possible predictors for the final model. 
+In the function \code{sprinter} the identified interaction candidates will be combined with each other pairwise and will be provided as possible predictors for the final model. 
 
 \subsection{fit.rf}{
 This function performs a random forest for survival. 
@@ -80,6 +85,11 @@ The number of covariables in this restricted data set can be set in \code{n.sele
 The variables with the \code{n.select} smallest univariate p-values evaluated by Cox regression are selected.
 }
 
+%\subsection{fit.hierarch}{
+%This function performs univariate regression modells. 
+%The variable importance measure is one, if the adjusted p-value if a variable is smaller than 0.05. 
+%}
+
 \subsection{Implementing new functions for the argument \code{screen.inter}}{
 New functions for screening interactions can be constructed in a way that for each variable an importance measurement is returned as a vector of length \code{p}. The variable importance measurements larger than zero should be interpreted as relevant for the model. \cr
 The following arguments must be enclosed in this function: 
@@ -97,9 +107,12 @@ With this directive other functions can be implemented and used for screening po
 
 
 \value{
-\code{fit.rf} and \code{fit.logicReg} return a vector of length p, containing the variable importance of each variable in the data set.
+\code{fit.rf} and \code{fit.logicReg} %and \code{fit.hierarch} 
+return a vector of length p, containing the variable importance of each variable in the data set.
 
-\code{fit.rf} evaluates the permutation accuracy importance (PAM) as a measure for the variable importance. The function \code{fit.logicReg} returns the information whether a variable is enclosed in the model (1) or not (0).
+\code{fit.rf} evaluates the permutation accuracy importance (PAM) as a measure for the variable importance. The function %s
+\code{fit.logicReg} %and \code{fit.hierarch} 
+returns the information whether a variable is enclosed in the model (1) or not (0).
 }
 
 \references{

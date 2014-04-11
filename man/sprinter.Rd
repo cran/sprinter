@@ -2,13 +2,13 @@
 \alias{sprinter}
 
 \title{
-Main function for building prognostic models by considering interactions in time-to-event settings.}
+Main function for building prognostic models by considering interactions.}
 \description{
-The function \code{sprinter} builds a prognostic model by preselecting interactions and main effects before fitting a Cox proportional hazards model.}
+The function \code{sprinter} builds a prognostic model by preselecting interactions and main effects before fitting a regression model.}
 \usage{
 sprinter(x, 
          time, 
-         status,
+         status= rep(0, nrow(x)),
          mandatory= NULL,
          repetitions = 25, 
          n.inter.candidates =1000, 
@@ -18,7 +18,7 @@ sprinter(x,
          args.screen.main = list(), 
          args.screen.inter = list(),
          args.fit.final = args.screen.main, 
-         orthogonalize = TRUE,
+         orthogonalize = TRUE, cutoff = 0,
          parallel = FALSE, mc.cores = detectCores(),
          \dots)
 }
@@ -31,7 +31,7 @@ n * p matrix of covariates.
 vector of length \code{n} specifying the observed times.
 }
   \item{status}{
-censoring indicator, i.e., vector of length \code{n} with entries \code{0} for censored observations and 1 for uncensored observations.
+censoring indicator, i.e., vector of length \code{n} with entries \code{0} for censored observations and 1 for uncensored observations. This optional argument is neccessary in time-to-event data.
 }
   \item{mandatory}{
 vector with variable names of mandatory covariates, where parameter estimation should be performed unpenalized.
@@ -59,6 +59,9 @@ list of arguments which should be used in the interaction screening step.}
 list of arguments which should be used in the final model building step.}
   \item{orthogonalize}{
 logical value. If true all variables are made orthogonal to those that are assessed as main effects by \code{screen.main}.
+  }
+  \item{cutoff}{
+value or function to evaluate a value according to the variable importance. The cutoff is used to select variables for evaluating the pairwise inclusion frequencies.
   }
   \item{parallel}{
 logical value indicating whether the interaction screening step should be performed parallel.
@@ -109,7 +112,7 @@ In contrast to building the main effects model, the final model is constructed b
 \value{
 An object of class (sprinter) with the following components:
 \item{n.inter.candidates}{Number of potential interaction candidates considered in the final model building.}
-\item{inter.candidates}{Vector of length \code{n.inter.candidates} with the potential interaction candidates consideren in the final model building.}
+\item{inter.candidates}{Vector of length \code{n.inter.candidates} with the potential interaction candidates considered in the final model building.}
 \item{main.model}{Main effects model. The class depends on the function used in \code{screen.main}.}
 \item{final.model}{Final model. The class depends on the function used in \code{fit.final}.}
 \item{xnames}{vector of the variable names used in the final model.}
@@ -133,14 +136,18 @@ Written by Isabell Hoffmann \email{isabell.hoffmann@uni-mainz.de}.
 \examples{
 
 \dontrun{
-############
+##---------------------------
+## Survival analysis
+##---------------------------
+
+#############################
 # Fit a Cox proportional hazards model by CoxBoost by considering 
 # interactions after screening interactions by random forest
 # system.time:
 #   user  system elapsed 
 # 370.97    2.32  374.31
 # For a faster run set repetitions down!
-############
+#############################
 
 # Create survival data with interactions:
 simulation <- simul.int(287578,n = 200, p = 500,
@@ -208,5 +215,101 @@ summary(testunicox)
 # ID1   ID2   ID5:ID6   ID7:ID8
 # 0.9  -0.9      1         -1
 
+
+##---------------------------
+## Continuous outcome
+##---------------------------
+
+# selection of main effects by univariate generalized 
+# linear models and pre-selections of interactions 
+# by random forest:
+sprinter.glm.rf.con <- sprinter( x=data[,1:500],  
+                    time = data$obs.time,
+                    repetitions = 10,
+                    mandatory = c("ID1","ID2"),
+                    n.inter.candidates = 1000, 
+                    screen.main = fit.uniGlm, 
+                    fit.final = fit.uniGlm, 
+                    parallel = FALSE)
+
+# selection of main effects by univariate generalized 
+# linear models and pre-selections of interactions 
+# by logic regression:
+sprinter.glm.logicR.con <- sprinter( x=data[,1:500],  
+                    time = data$obs.time,
+                    repetitions = 10,
+                    mandatory = c("ID1","ID2"),
+                    n.inter.candidates = 1000, 
+                    screen.main = fit.uniGlm,
+                    screen.inter = fit.logicReg,
+                    fit.final = fit.uniGlm, 
+                    args.screen.inter = list(type = 2),
+                    parallel = FALSE)
+
+# selection of main effects by GAMBoost 
+#  and pre-selections of interactions 
+# by random forest:
+sprinter.gamboost.rf.con <- sprinter( x=data[,1:500],  
+                    time = data$obs.time,
+                    repetitions = 10,
+                    mandatory = c("ID1","ID2"),
+                    n.inter.candidates = 1000, 
+                    screen.main = fit.GAMBoost, 
+                    args.screen.main = list(stepno = 10),
+                    fit.final = fit.GAMBoost, 
+                    parallel = FALSE)
+                    
+
+##---------------------------
+## Binary outcome 
+##---------------------------
+x <- matrix(runif(200*500,min=-1,max=1),200,500)  
+colnames(x) <- paste('ID', 1:500, sep = '')
+eta <- -0.5 + 2*x[,1] - 2*x[,3] + 2 * x[,3]*x[,4]
+y <- rbinom(200,1,binomial()$linkinv(eta))
+
+
+# selection of main effects by univariate generalized 
+# linear models and pre-selections of interactions 
+# by random forest:
+sprinter.glm.rf.bin <- sprinter( x=x[,1:500],  
+                    time = y,
+                    repetitions = 10,
+                    mandatory = c("ID1","ID2"),
+                    n.inter.candidates = 1000, 
+                    screen.main = fit.uniGlm, 
+                    fit.final = fit.uniGlm, 
+                    args.screen.main = list(family = binomial()),
+                    parallel = FALSE)
+                    
+# selection of main effects by univariate generalized 
+# linear models and pre-selections of interactions 
+# by logic regression:
+sprinter.glm.logicR.bin <- sprinter( x=x[,1:500],  
+                    time = y,
+                    repetitions = 10,
+                    mandatory = c("ID1","ID2"),
+                    n.inter.candidates = 1000, 
+                    screen.main = fit.uniGlm,
+                    screen.inter = fit.logicReg,
+                    fit.final = fit.uniGlm, 
+                    args.screen.inter = list(type = 3),
+                    parallel = FALSE)
+     
+
+# selection of main effects by GAMBoost and pre-selection of 
+# interactions by random forest:
+
+sprinter.GAMBoost.rf.bin <- sprinter( x=x,  
+                    time = y,
+                    repetitions = 10,
+                    mandatory = c("ID1","ID2"),
+                    n.inter.candidates = 1000, 
+                    screen.main = fit.GAMBoost, 
+                    fit.final = fit.GAMBoost, 
+                    args.screen.main = list(family = binomial()),
+                    parallel = FALSE)
+                    
+               
 }
 }
